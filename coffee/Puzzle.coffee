@@ -338,7 +338,26 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 	
 	draw = SVG drawing
 	render = ->
-		uem = UnsignedEdgeMatch.from_3_partition [1, 5, 3, 12, 8, 19, 7, 4, 13, 4, 2, 10]
+		str = document.getElementById('3_partition').value
+		document.getElementById('bad_3_partition').innerHTML = ''
+		
+		strs = _.filter str.split(' '), (str) -> str != '' # JavaScript for some reason keeps the empty strings
+		if strs.length == 0
+			document.getElementById('bad_3_partition').innerHTML = "Congrats. Because you didn't enter any numbers, you just divided by 0. Catastrophe incoming..."
+			return
+			
+		nums = []
+		for str in strs
+			num = parseFloat str
+			if isNaN(num) or num < 1 or not Number.isInteger(num)
+				document.getElementById('bad_3_partition').innerHTML = "#{str} is not a positive integer."
+				return
+			nums.push num
+			
+		unless Number.isInteger target_sum_3_partition nums
+			document.getElementById('bad_3_partition').innerHTML = "The sum of the numbers must be divisible by the number of numbers divided by 3."
+			return
+		uem = UnsignedEdgeMatch.from_3_partition nums
 		
 		draw.clear()
 		draw.size uem.width * 64, uem.height * 64
@@ -355,3 +374,5 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 	#for num in block.entries
 	#	str_ += "#{num.toString()} "
 	#document.getElementById('result').innerHTML = "[#{str_}]"
+	
+	#test example: [1, 5, 3, 12, 8, 19, 7, 4, 13, 4, 2, 10]
