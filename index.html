@@ -9,14 +9,26 @@
 </head>
 <body>
 	<h1>'Jigsaw Puzzle' Reduction Loop</h1>
-	<p>Test renderer</p>
 	<p>Enter a 3-Partition instance as numbers separated by spaces (e.g.: 1 5 3 12 8 19 7 4 13 4 2 10). All numbers must be positive integers.</p>
 	<p style="color:#ff0000", id="bad_3_partition"></p>
-	<form onsubmit="render(); return false">
+	<form onsubmit="render_3_partition(); return false">
 		<input type="text", id="3_partition"/>
 		<input type="submit", value="Render"/>
 	</form>
+	
 	<p id="result"></p>
+	<h2 id="puzzle_type"></h2>
+	<form onsubmit="reduce(); return false">
+		<input type="submit", id="reduce_text", value="BUG!"/>
+	</form>
+	
+	<p style="color:#ff0000", id="bad_size"></p>
+	<form onsubmit="set_size(); return false">
+		<input type="text", id="size"/>
+		<input type="submit", value="Set Size"/>
+	</form>
+	
+	<p></p>
 	<div id="drawing"></div>
 	<script src="js/Puzzle.js"></script>
 </body>
