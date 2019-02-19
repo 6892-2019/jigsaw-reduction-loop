@@ -59,11 +59,11 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 				@puzzle.swap_pieces @piece.position[0], @piece.position[1], x, y
 				
 		@tile_drag_end = (e) ->
+			@x @piece.position[0] + 0.5
+			@y @piece.position[1] + 0.5
 			if @should_rotate
-				@animate(200, '>').rotate (@transform().rotation - 90) %% 360
+				@rotate @transform().rotation - 90
 				@piece.rotate()
-			@x @piece.position[0]
-			@y @piece.position[1]
 				
 		
 		#@STRIP_COLORS = ['#f00', '#f80', '#840', '#fc0', '#ff0', '#8f0', '#0f0', '#0f8', '#0ff', '#088', '#08f', '#00f', '#80f', '#808', '#f0f', '#f08']
@@ -227,7 +227,7 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 			piece2 = @get_piece x2, y2
 			piece1.position = [x2, y2]
 			piece2?.position = [x1, y1]
-			piece2?.svg?.animate(400, '>').x(x1).y(y1)
+			piece2?.svg?.animate(400, '>').x(x1 + 0.5).y(y1 + 0.5)
 			@set_piece x1, y1, piece2
 			@set_piece x2, y2, piece1
 		
@@ -290,9 +290,9 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 					piece = uem.get_piece index %% (width - 2) + 1, index // (width - 2) + 1
 					piece.entries[Block.TOP] = common_vert
 					piece.entries[Block.BOTTOM] = common_vert
-					piece.entries[Block.LEFT] = if i == 0 then common_horz else unique + 1
+					piece.entries[Block.LEFT] = if i == 0 then common_horz else unique
 					if i != 0
-						unique += 2
+						unique += 1
 					piece.entries[Block.RIGHT] = if i == num - 1 then common_horz else unique
 					index += 1
 			
@@ -309,15 +309,15 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 					piece = @get_piece(x, y)
 					if piece?
 						tile = draw.ublock_tile(@get_piece(x, y).entries).move x + 0.5, y + 0.5
-						#tile.draggable(
-						#	minX: 0
-						#	maxX: @width
-						#	minY: 0
-						#	maxY: @height
-						#)
-						#.on('beforedrag', Block.tile_before_drag)
-						#.on('dragmove', Block.tile_drag_move)
-						#.on('dragend', Block.tile_drag_end)
+						tile.draggable(
+							minX: 0.5
+							maxX: @width + 0.5
+							minY: 0.5
+							maxY: @height + 0.5
+						)
+						.on('beforedrag', Block.tile_before_drag)
+						.on('dragmove', Block.tile_drag_move)
+						.on('dragend', Block.tile_drag_end)
 						
 						tile.puzzle = this
 						tile.piece = piece

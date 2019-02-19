@@ -70,12 +70,12 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
       }
 
       static tile_drag_end(e) {
+        this.x(this.piece.position[0] + 0.5);
+        this.y(this.piece.position[1] + 0.5);
         if (this.should_rotate) {
-          this.animate(200, '>').rotate(modulo(this.transform().rotation - 90, 360));
-          this.piece.rotate();
+          this.rotate(this.transform().rotation - 90);
+          return this.piece.rotate();
         }
-        this.x(this.piece.position[0]);
-        return this.y(this.piece.position[1]);
       }
 
     };
@@ -406,7 +406,7 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
       }
       if (piece2 != null) {
         if ((ref = piece2.svg) != null) {
-          ref.animate(400, '>').x(x1).y(y1);
+          ref.animate(400, '>').x(x1 + 0.5).y(y1 + 0.5);
         }
       }
       this.set_piece(x1, y1, piece2);
@@ -495,9 +495,9 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
           piece = uem.get_piece(modulo(index, width - 2) + 1, Math.floor(index / (width - 2)) + 1);
           piece.entries[Block.TOP] = common_vert;
           piece.entries[Block.BOTTOM] = common_vert;
-          piece.entries[Block.LEFT] = i === 0 ? common_horz : unique + 1;
+          piece.entries[Block.LEFT] = i === 0 ? common_horz : unique;
           if (i !== 0) {
-            unique += 2;
+            unique += 1;
           }
           piece.entries[Block.RIGHT] = i === num - 1 ? common_horz : unique;
           index += 1;
@@ -530,16 +530,12 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
             piece = this.get_piece(x, y);
             if (piece != null) {
               tile = draw.ublock_tile(this.get_piece(x, y).entries).move(x + 0.5, y + 0.5);
-              console.log(tile);
-              //tile.draggable(
-              //	minX: 0
-              //	maxX: @width
-              //	minY: 0
-              //	maxY: @height
-              //)
-              //.on('beforedrag', Block.tile_before_drag)
-              //.on('dragmove', Block.tile_drag_move)
-              //.on('dragend', Block.tile_drag_end)
+              tile.draggable({
+                minX: 0.5,
+                maxX: this.width + 0.5,
+                minY: 0.5,
+                maxY: this.height + 0.5
+              }).on('beforedrag', Block.tile_before_drag).on('dragmove', Block.tile_drag_move).on('dragend', Block.tile_drag_end);
               tile.puzzle = this;
               tile.piece = piece;
               results1.push(piece.svg = tile);
