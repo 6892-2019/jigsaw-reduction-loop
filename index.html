@@ -1,12 +1,21 @@
 <!doctype html>
 <html>
 <head>
+	<script src="libs/underscore.js"></script>
+	<script>JSCLASS_PATH = "libs/jsclass"</script>
+	<script src="libs/jsclass/loader-browser.js"><!--because regular JavaScript sets are SO LIMITED--></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/svg.js/2.7.1/svg.js"</script>
+	<script src="libs/svg.draggable.js"</script>
 </head>
 <body>
 	<h1>'Jigsaw Puzzle' Reduction Loop</h1>
-	<p> TODO: Add renderer</p>
+	<p>Test renderer</p>
 	
+	<form onsubmit="render(); return false">
+		<input type="submit", value="Render"/>
+	</form>
 	<p id="result"></p>
+	<div id="drawing"></div>
 	<script src="js/Puzzle.js"></script>
 </body>
 </html>
