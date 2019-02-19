@@ -55,6 +55,29 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
         return results;
       }
 
+      static tile_before_drag(e) {
+        return this.should_rotate = true;
+      }
+
+      static tile_drag_move(e) {
+        var x, y;
+        this.front();
+        [x, y] = [Math.floor(this.cx()), Math.floor(this.cy())];
+        if (x !== this.piece.position[0] || y !== this.piece.position[1]) {
+          this.should_rotate = false;
+          return this.puzzle.swap_pieces(this.piece.position[0], this.piece.position[1], x, y);
+        }
+      }
+
+      static tile_drag_end(e) {
+        if (this.should_rotate) {
+          this.animate(200, '>').rotate(modulo(this.transform().rotation - 90, 360));
+          this.piece.rotate();
+        }
+        this.x(this.piece.position[0]);
+        return this.y(this.piece.position[1]);
+      }
+
     };
 
     
@@ -90,6 +113,7 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
       }
     });
 
+    
     //@STRIP_COLORS = ['#f00', '#f80', '#840', '#fc0', '#ff0', '#8f0', '#0f0', '#0f8', '#0ff', '#088', '#08f', '#00f', '#80f', '#808', '#f0f', '#f08']
     Block.STRIP_COLORS = ['#f00', '#ff0', '#0f0', '#0ff', '#00f', '#f0f', '#f88', '#880', '#080', '#088', '#88f', '#808', '#000', '#555', '#aaa', '#fff'];
 
@@ -372,6 +396,23 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
       return this.pieces[y * this.width + x] = piece;
     }
 
+    swap_pieces(x1, y1, x2, y2) { //Assumes that the piece at x1, y1 is invading the spot x2, y2
+      var piece1, piece2, ref;
+      piece1 = this.get_piece(x1, y1);
+      piece2 = this.get_piece(x2, y2);
+      piece1.position = [x2, y2];
+      if (piece2 != null) {
+        piece2.position = [x1, y1];
+      }
+      if (piece2 != null) {
+        if ((ref = piece2.svg) != null) {
+          ref.animate(400, '>').x(x1).y(y1);
+        }
+      }
+      this.set_piece(x1, y1, piece2);
+      return this.set_piece(x2, y2, piece1);
+    }
+
   };
   UnsignedEdgeMatch = class UnsignedEdgeMatch extends EdgeMatch {
     constructor(width, height, pieces) {
@@ -466,7 +507,7 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
     }
 
     init_render(draw) {
-      var j, k, l, ref, ref1, ref2, results, x, y;
+      var j, k, l, piece, ref, ref1, ref2, results, tile, x, y;
 // note: 2 dots
       for (x = j = 0, ref = this.width; (0 <= ref ? j <= ref : j >= ref); x = 0 <= ref ? ++j : --j) {
         draw.line(x, 0, x, this.height).stroke({
@@ -486,8 +527,22 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
           var m, ref3, results1;
           results1 = [];
           for (x = m = 0, ref3 = this.width; (0 <= ref3 ? m < ref3 : m > ref3); x = 0 <= ref3 ? ++m : --m) {
-            if (this.get_piece(x, y) != null) {
-              results1.push(draw.ublock_tile(this.get_piece(x, y).entries).move(x + 0.5, y + 0.5));
+            piece = this.get_piece(x, y);
+            if (piece != null) {
+              tile = draw.ublock_tile(this.get_piece(x, y).entries).move(x + 0.5, y + 0.5);
+              console.log(tile);
+              //tile.draggable(
+              //	minX: 0
+              //	maxX: @width
+              //	minY: 0
+              //	maxY: @height
+              //)
+              //.on('beforedrag', Block.tile_before_drag)
+              //.on('dragmove', Block.tile_drag_move)
+              //.on('dragend', Block.tile_drag_end)
+              tile.puzzle = this;
+              tile.piece = piece;
+              results1.push(piece.svg = tile);
             } else {
               results1.push(void 0);
             }

@@ -47,6 +47,25 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 			construct:
 				block_tile: (entries) -> @put(new Block.Tile).constructor_ entries
 		)
+		
+		@tile_before_drag = (e) ->
+			@should_rotate = true
+			
+		@tile_drag_move = (e) ->
+			@front()
+			[x, y] = [Math.floor(@cx()), Math.floor(@cy())]
+			if x != @piece.position[0] or y != @piece.position[1]
+				@should_rotate = false
+				@puzzle.swap_pieces @piece.position[0], @piece.position[1], x, y
+				
+		@tile_drag_end = (e) ->
+			if @should_rotate
+				@animate(200, '>').rotate (@transform().rotation - 90) %% 360
+				@piece.rotate()
+			@x @piece.position[0]
+			@y @piece.position[1]
+				
+		
 		#@STRIP_COLORS = ['#f00', '#f80', '#840', '#fc0', '#ff0', '#8f0', '#0f0', '#0f8', '#0ff', '#088', '#08f', '#00f', '#80f', '#808', '#f0f', '#f08']
 		@STRIP_COLORS = ['#f00', '#ff0', '#0f0', '#0ff', '#00f', '#f0f', '#f88', '#880', '#080', '#088', '#88f', '#808', '#000', '#555', '#aaa', '#fff']
 		
@@ -203,6 +222,15 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 		get_piece: (x, y) -> return @pieces[y * @width + x]
 		set_piece: (x, y, piece) -> @pieces[y * @width + x] = piece
 		
+		swap_pieces: (x1, y1, x2, y2) -> #Assumes that the piece at x1, y1 is invading the spot x2, y2
+			piece1 = @get_piece x1, y1
+			piece2 = @get_piece x2, y2
+			piece1.position = [x2, y2]
+			piece2?.position = [x1, y1]
+			piece2?.svg?.animate(400, '>').x(x1).y(y1)
+			@set_piece x1, y1, piece2
+			@set_piece x2, y2, piece1
+		
 	
 	class UnsignedEdgeMatch extends EdgeMatch
 		constructor: (width, height, pieces) -> super width, height, pieces
@@ -278,8 +306,22 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 				
 			for y in [0...@height]
 				for x in [0...@width]
-					if @get_piece(x, y)?
-						draw.ublock_tile(@get_piece(x, y).entries).move x + 0.5, y + 0.5
+					piece = @get_piece(x, y)
+					if piece?
+						tile = draw.ublock_tile(@get_piece(x, y).entries).move x + 0.5, y + 0.5
+						#tile.draggable(
+						#	minX: 0
+						#	maxX: @width
+						#	minY: 0
+						#	maxY: @height
+						#)
+						#.on('beforedrag', Block.tile_before_drag)
+						#.on('dragmove', Block.tile_drag_move)
+						#.on('dragend', Block.tile_drag_end)
+						
+						tile.puzzle = this
+						tile.piece = piece
+						piece.svg = tile
 					
 	
 	class SignedEdgeMatch extends EdgeMatch
