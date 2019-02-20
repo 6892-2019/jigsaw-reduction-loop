@@ -126,6 +126,10 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
         super(position, entries);
       }
 
+      copy() {
+        return new UnsignedBlock(this.position.slice(0), this.entries.slice(0));
+      }
+
       reduce_signed(u0, u1, u2, u3) { // arguments are unique positive integers
         // Return the 4 signed blocks that can simulate this unsigned one
         return [new SignedBlock([0, 0], [-u1, this.entries[1], -this.entries[2], u2]), new SignedBlock([1, 0], [this.entries[0], -this.entries[1], u1, -u0]), new SignedBlock([0, 1], [u3, -u2, this.entries[2], -this.entries[3]]), new SignedBlock([1, 1], [-this.entries[0], u0, -u3, this.entries[3]])];
@@ -175,6 +179,10 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
         super(position, entries);
       }
 
+      copy() {
+        return new SignedBlock(this.position.slice(0), this.entries.slice(0));
+      }
+
       reduce_jigsaw(size) {
         var edge_to_polyomino, num;
         edge_to_polyomino = function(num) { // Encodes a number edge into a jigsaw edge
@@ -193,7 +201,6 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
           if (num > 0) {
             poly.rotate_around(Piece.CCW_180, size / 2, 0);
           }
-          console.log('After', poly.entries.toArray());
           return poly;
         };
         return new Jigsaw([0, 0], (function() {
@@ -345,11 +352,14 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
       }
 
       shift_offset(x, y) { // shifts the offsets of the blocks instead of the overall position
-        this.entries.forEach(function(entry) {
-          entry[0] += x;
-          return entry[1] += y;
-        });
-        return this.entries.rebuild();
+        // Modifying the keys of a set glitches the set, even if rebuild() is called
+        //@entries.forEach (entry) ->
+        //	entry[0] += x
+        //	entry[1] += y
+        //@entries.rebuild()
+        return this.entries = new Set(this.entries.map(function(entry) {
+          return [entry[0] + x, entry[1] + y];
+        }));
       }
 
       rotate_offset(amount) { // rotates offsets counterclockwise around the origin, amount is Piece.CCW_xx
@@ -376,8 +386,7 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
       rotate_around(amount, x, y) {
         this.shift_offset(-x, -y);
         this.rotate_offset(amount);
-        this.shift_offset(x, y);
-        return console.log('During', this.entries.toArray());
+        return this.shift_offset(x, y);
       }
 
       reoffset() {
@@ -393,11 +402,14 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
             return a[1] - b[1];
           })[1]
         ];
-        this.entries.forEach(function(entry) {
-          entry[0] -= min_x;
-          return entry[1] -= min_y;
-        });
-        return this.entries.rebuild();
+        // Modifying the keys of a set glitches the set, even if rebuild() is called
+        //@entries.forEach (entry) ->
+        //	entry[0] -= min_x
+        //	entry[1] -= min_y
+        //@entries.rebuild()
+        return this.entries = new Set(this.entries.map(function(entry) {
+          return [entry[0] - min_x, entry[1] - min_y];
+        }));
       }
 
       rotate(amount) {
@@ -858,6 +870,60 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
         return JigsawPuzzle;
       }
 
+      reduce() {
+        var piece, sem;
+        sem = new SignedEdgeMatch(this.width, this.height, (function() {
+          var j, len, ref, results;
+          ref = this.pieces;
+          results = [];
+          for (j = 0, len = ref.length; j < len; j++) {
+            piece = ref[j];
+            results.push(piece.copy());
+          }
+          return results;
+        }).call(this));
+        return [sem.reduce_internal(), 1];
+      }
+
+      reduce_internal() { // modifies this
+        var j, jp, k, l, m, piece, ref, ref1, ref2, ref3, unique, x, y;
+        unique = 1 + Math.max(...((function() {
+          var j, len, ref, results;
+          ref = this.pieces;
+          results = [];
+          for (j = 0, len = ref.length; j < len; j++) {
+            piece = ref[j];
+            if (piece != null) {
+              results.push(Math.max(...piece.entries));
+            }
+          }
+          return results;
+        }).call(this)));
+
+// Fix frame inside
+        for (x = j = 0, ref = this.width - 1; (0 <= ref ? j < ref : j > ref); x = 0 <= ref ? ++j : --j) {
+          this.get_piece(x, 0).entries[Block.RIGHT] = unique;
+          this.get_piece(x + 1, 0).entries[Block.LEFT] = -unique;
+          this.get_piece(x, this.height - 1).entries[Block.RIGHT] = unique + 1;
+          this.get_piece(x + 1, this.height - 1).entries[Block.LEFT] = -unique - 1;
+          unique += 2;
+        }
+        for (y = k = 0, ref1 = this.height - 1; (0 <= ref1 ? k < ref1 : k > ref1); y = 0 <= ref1 ? ++k : --k) {
+          this.get_piece(0, y).entries[Block.BOTTOM] = unique;
+          this.get_piece(0, y + 1).entries[Block.TOP] = -unique;
+          this.get_piece(this.width - 1, y).entries[Block.BOTTOM] = unique + 1;
+          this.get_piece(this.width - 1, y + 1).entries[Block.TOP] = -unique - 1;
+          unique += 2;
+        }
+        jp = new JigsawPuzzle(this.width, this.height, 5 + Math.floor(Math.log2(unique - 1)));
+        for (y = l = 0, ref2 = jp.height; (0 <= ref2 ? l < ref2 : l > ref2); y = 0 <= ref2 ? ++l : --l) {
+          for (x = m = 0, ref3 = jp.width; (0 <= ref3 ? m < ref3 : m > ref3); x = 0 <= ref3 ? ++m : --m) {
+            jp.get_piece(x, y).entries = this.get_piece(x, y).reduce_jigsaw(jp.size).entries;
+          }
+        }
+        return jp;
+      }
+
       static from_3_partition(nums) {
         var common_horz, common_vert, height, i, index, j, k, l, len, m, n, num, o, p, piece, q, ref, ref1, ref2, ref3, ref4, ref5, ref6, sem, target_sum, unique, width, x, y;
         target_sum = target_sum_3_partition(nums);
@@ -960,43 +1026,32 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
         return PolyominoPack;
       }
 
-      static from_3_partition(nums) {
-        var j, jp, k, l, m, piece, ref, ref1, ref2, ref3, sem, unique, x, y;
-        sem = SignedEdgeMatch.from_3_partition(nums);
-        unique = 1 + Math.max(...((function() {
-          var j, len, ref, results;
-          ref = sem.pieces;
-          results = [];
-          for (j = 0, len = ref.length; j < len; j++) {
-            piece = ref[j];
-            if (piece != null) {
-              results.push(Math.max(...piece.entries));
+      reduce() {
+        var i;
+        return [
+          new PolyominoPack(this.width * this.size,
+          this.height * this.size,
+          (function() {
+            var j,
+          ref,
+          results;
+            results = [];
+            for (i = j = 0, ref = this.width * this.height; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
+              results.push(new Polyomino([modulo(i,
+          this.width) * this.size,
+          Math.floor(i / this.width) * this.size],
+          this.pieces[i].reduce_polyomino(this.size).entries));
             }
-          }
-          return results;
-        })()));
+            return results;
+          }).call(this)),
+          this.size
+        ];
+      }
 
-// Fix frame inside
-        for (x = j = 0, ref = sem.width - 1; (0 <= ref ? j < ref : j > ref); x = 0 <= ref ? ++j : --j) {
-          sem.get_piece(x, 0).entries[Block.RIGHT] = unique;
-          sem.get_piece(x + 1, 0).entries[Block.LEFT] = -unique;
-          sem.get_piece(x, sem.height - 1).entries[Block.RIGHT] = -unique - 1;
-          sem.get_piece(x + 1, sem.height - 1).entries[Block.LEFT] = unique + 1;
-          unique += 2;
-        }
-        for (y = k = 0, ref1 = sem.height - 1; (0 <= ref1 ? k < ref1 : k > ref1); y = 0 <= ref1 ? ++k : --k) {
-          sem.get_piece(0, y).entries[Block.BOTTOM] = -unique;
-          sem.get_piece(0, y + 1).entries[Block.TOP] = unique;
-          sem.get_piece(sem.width - 1, y).entries[Block.BOTTOM] = unique + 1;
-          sem.get_piece(sem.width - 1, y + 1).entries[Block.TOP] = -unique - 1;
-        }
-        jp = new JigsawPuzzle(sem.width, sem.height, 5 + Math.floor(Math.log2(unique - 1)));
-        for (y = l = 0, ref2 = jp.height; (0 <= ref2 ? l < ref2 : l > ref2); y = 0 <= ref2 ? ++l : --l) {
-          for (x = m = 0, ref3 = jp.width; (0 <= ref3 ? m < ref3 : m > ref3); x = 0 <= ref3 ? ++m : --m) {
-            jp.get_piece(x, y).entries = sem.get_piece(x, y).reduce_jigsaw(jp.size).entries;
-          }
-        }
-        return jp;
+      static from_3_partition(nums) {
+        var sem;
+        sem = SignedEdgeMatch.from_3_partition(nums);
+        return sem.reduce_internal();
       }
 
       init_render(draw) { // size used only for jigsaw
@@ -1220,7 +1275,7 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
 
   }).call(this);
   draw = SVG(drawing);
-  puzzle_type = JigsawPuzzle;
+  puzzle_type = UnsignedEdgeMatch;
   size = 64;
   width = 0;
   height = 0;

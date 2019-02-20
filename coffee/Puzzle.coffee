@@ -72,6 +72,9 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 		# Positive integer entries only!
 		constructor: (position, entries) -> super position, entries
 		
+		copy: ->
+			return new UnsignedBlock @position[..], @entries[..]
+		
 		reduce_signed: (u0, u1, u2, u3) -> # arguments are unique positive integers
 			# Return the 4 signed blocks that can simulate this unsigned one
 			return [new SignedBlock([0, 0], [-u1, @entries[1], -@entries[2], u2]), new SignedBlock([1, 0], [@entries[0], -@entries[1], u1, -u0]),
@@ -105,6 +108,9 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 		# Positive and negative integer entries only!
 		constructor: (position, entries) -> super position, entries
 		
+		copy: ->
+			return new SignedBlock @position[..], @entries[..]
+		
 		reduce_jigsaw: (size) -> 
 			edge_to_polyomino = (num) -> # Encodes a number edge into a jigsaw edge
 				pos_num = Math.abs num
@@ -119,7 +125,6 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 				poly = new Polyomino [0, 0], entries
 				if num > 0
 					poly.rotate_around Piece.CCW_180, size / 2, 0
-				console.log 'After', poly.entries.toArray()
 				return poly
 				
 			return new Jigsaw [0, 0], (edge_to_polyomino(num) for num in @entries)
@@ -210,10 +215,12 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 			@entries = @entries.xor other.entries
 		
 		shift_offset: (x, y) -> # shifts the offsets of the blocks instead of the overall position
-			@entries.forEach (entry) ->
-				entry[0] += x
-				entry[1] += y
-			@entries.rebuild()
+			# Modifying the keys of a set glitches the set, even if rebuild() is called
+			#@entries.forEach (entry) ->
+			#	entry[0] += x
+			#	entry[1] += y
+			#@entries.rebuild()
+			@entries = new Set @entries.map (entry) -> [entry[0] + x, entry[1] + y]
 				
 		rotate_offset: (amount) -> # rotates offsets counterclockwise around the origin, amount is Piece.CCW_xx
 			@entries = switch amount
@@ -226,15 +233,16 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 			@shift_offset -x, -y
 			@rotate_offset amount
 			@shift_offset x, y
-			console.log 'During', x, y, @entries.toArray()
 		
 		reoffset: ->
 			# Re-offset to origin
 			[min_x, min_y] = [@entries.min((a, b) -> (a[0] - b[0]))[0], @entries.min((a, b) -> (a[1] - b[1]))[1]]
-			@entries.forEach (entry) ->
-				entry[0] -= min_x
-				entry[1] -= min_y
-			@entries.rebuild()
+			# Modifying the keys of a set glitches the set, even if rebuild() is called
+			#@entries.forEach (entry) ->
+			#	entry[0] -= min_x
+			#	entry[1] -= min_y
+			#@entries.rebuild()
+			@entries = new Set @entries.map (entry) -> [entry[0] - min_x, entry[1] - min_y]
 		
 		rotate: (amount) ->
 			@rotate_offset amount
@@ -512,6 +520,34 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 		@puzzle_name = 'Signed Edge Matching with Frame'
 		@reduce_to = -> JigsawPuzzle
 		
+		reduce: ->
+			sem = new SignedEdgeMatch @width, @height, (piece.copy() for piece in @pieces)
+			return [sem.reduce_internal(), 1]
+		
+		reduce_internal: -> # modifies this
+			unique = 1 + Math.max ...(Math.max(...piece.entries) for piece in @pieces when piece?)
+			
+			# Fix frame inside
+			for x in [0...@width - 1]
+				@get_piece(x, 0).entries[Block.RIGHT] = unique
+				@get_piece(x + 1, 0).entries[Block.LEFT] = -unique
+				@get_piece(x, @height - 1).entries[Block.RIGHT] = unique + 1
+				@get_piece(x + 1, @height - 1).entries[Block.LEFT] = -unique - 1
+				unique += 2
+			for y in [0...@height - 1]
+				@get_piece(0, y).entries[Block.BOTTOM] = unique
+				@get_piece(0, y + 1).entries[Block.TOP] = -unique
+				@get_piece(@width - 1, y).entries[Block.BOTTOM] = unique + 1
+				@get_piece(@width - 1, y + 1).entries[Block.TOP] = -unique - 1
+				unique += 2
+				
+			jp = new JigsawPuzzle @width, @height, 5 + Math.floor Math.log2(unique - 1)
+			for y in [0...jp.height]
+				for x in [0...jp.width]
+					jp.get_piece(x, y).entries = @get_piece(x, y).reduce_jigsaw(jp.size).entries
+				
+			return jp
+		
 		@from_3_partition: (nums) -> 
 			target_sum = target_sum_3_partition nums
 			width = target_sum + 2
@@ -578,29 +614,13 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 		@puzzle_name = 'Jigsaw Puzzle'
 		@reduce_to = -> PolyominoPack
 		
+		reduce: ->
+			return [new PolyominoPack(@width * @size, @height * @size,
+				(new Polyomino([i %% @width * @size, i // @width * @size], @pieces[i].reduce_polyomino(@size).entries) for i in [0...@width * @height])), @size]
+		
 		@from_3_partition: (nums) -> 
 			sem = SignedEdgeMatch.from_3_partition nums
-			unique = 1 + Math.max ...(Math.max(...piece.entries) for piece in sem.pieces when piece?)
-			
-			# Fix frame inside
-			for x in [0...sem.width - 1]
-				sem.get_piece(x, 0).entries[Block.RIGHT] = unique
-				sem.get_piece(x + 1, 0).entries[Block.LEFT] = -unique
-				sem.get_piece(x, sem.height - 1).entries[Block.RIGHT] = -unique - 1
-				sem.get_piece(x + 1, sem.height - 1).entries[Block.LEFT] = unique + 1
-				unique += 2
-			for y in [0...sem.height - 1]
-				sem.get_piece(0, y).entries[Block.BOTTOM] = -unique
-				sem.get_piece(0, y + 1).entries[Block.TOP] = unique
-				sem.get_piece(sem.width - 1, y).entries[Block.BOTTOM] = unique + 1
-				sem.get_piece(sem.width - 1, y + 1).entries[Block.TOP] = -unique - 1
-				
-			jp = new JigsawPuzzle sem.width, sem.height, 5 + Math.floor Math.log2(unique - 1)
-			for y in [0...jp.height]
-				for x in [0...jp.width]
-					jp.get_piece(x, y).entries = sem.get_piece(x, y).reduce_jigsaw(jp.size).entries
-				
-			return jp
+			return sem.reduce_internal()
 			
 		init_render: (draw) -> # size used only for jigsaw
 			for x in [0..@width] # note: 2 dots
@@ -741,7 +761,7 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 		
 	
 	draw = SVG drawing
-	puzzle_type = JigsawPuzzle
+	puzzle_type = UnsignedEdgeMatch
 	size = 64
 	width = 0
 	height = 0
