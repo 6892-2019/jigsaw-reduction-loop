@@ -224,10 +224,37 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 						if @entries.contains [point[0], point[1] + 1] then [point[0], point[1] + 1] else null
 					]
 		
+		boundary: -> # returns the boundary as a list of loops, where each loop is a list of points
+		
+			edge_points = (entry, side) ->
+				return switch side
+					when Block.RIGHT  then [[entry[0] + 1, entry[1] + 1], [entry[0] + 1, entry[1] + 0]]
+					when Block.TOP    then [[entry[0] + 1, entry[1] + 0], [entry[0] + 0, entry[1] + 0]]
+					when Block.LEFT   then [[entry[0] + 0, entry[1] + 0], [entry[0] + 0, entry[1] + 1]]
+					when Block.BOTTOM then [[entry[0] + 0, entry[1] + 1], [entry[0] + 1, entry[1] + 1]]
+					
+			# Edge graph
+			edge_graph = new Hash()
+			@entries.forEach (entry) =>
+				for nb, i in @neighbors entry
+					unless nb?
+						edge = edge_points entry, i
+						
+						# Add the edge to the graph
+						unless edge_graph.has_key edge[0]
+							edge_graph.put edge[0], []
+						unless edge_graph.has_key edge[1]
+							edge_graph.put edge[1], []
+						edge_graph.get(edge[0]).push edge[1]
+						edge_graph.get(edge[1]).push edge[0]
+						
+			return edge_graph
+			
+		
 		reduce_unsigned: (common, ustart) -> # common: common number to use for edge, ustart: start of unique numbers
 			block_map = new Hash _.flatten (@entries.map (entry) -> [entry, (undefined for i in [0...4])]), true
 			@entries.forEach (entry) =>
-				for nb, i in poly.neighbors entry
+				for nb, i in @neighbors entry
 					if nb? and @entries.contains nb
 						unless block_map.get(entry)[i]?
 							block_map.get(entry)[i] = ustart # edges inside jigsaw get unique color that acts like glue
@@ -569,6 +596,8 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 	#jig = sb.reduce_jigsaw 7
 	#poly = jig.reduce_polyomino 7
 	
+	polyo = new Polyomino [0, 0], [[0, 0], [1, 0], [2, 0], [2, 1]]
+	console.log polyo.boundary()
 	
 	#str_ = ''
 	#for num in block.entries
