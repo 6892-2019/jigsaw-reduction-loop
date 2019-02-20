@@ -66,7 +66,7 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
       static tile_drag_move(e) {
         var x, y;
         this.front();
-        [x, y] = [Math.floor(this.cx()), Math.floor(this.cy())];
+        [x, y] = [Math.floor(this.x()), Math.floor(this.y())];
         if (x !== this.piece.position[0] || y !== this.piece.position[1]) {
           this.should_rotate = false;
           return this.puzzle.swap_pieces(this.piece.position[0], this.piece.position[1], x, y);
@@ -77,8 +77,8 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
         this.x(this.piece.position[0] + 0.5);
         this.y(this.piece.position[1] + 0.5);
         if (this.should_rotate) {
-          this.inner.rotate(Math.round((this.inner.transform().rotation - 90) % 360));
-          return this.piece.rotate();
+          this.inner.rotate(Math.round((this.inner.transform().rotation - 90) % 360, 0, 0));
+          return this.piece.rotate(Piece.CCW_90);
         }
       }
 
@@ -193,6 +193,7 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
           if (num > 0) {
             poly.rotate_around(Piece.CCW_180, size / 2, 0);
           }
+          console.log('After', poly.entries.toArray());
           return poly;
         };
         return new Jigsaw([0, 0], (function() {
@@ -246,27 +247,62 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
     return SignedBlock;
 
   }).call(this);
-  Jigsaw = class Jigsaw extends Block {
-    // Entries are polyominos XOR'd with a block
-    constructor(position, entries) {
-      super(position, entries);
-    }
-
-    reduce_polyomino(size) {
-      var entry, j, len, poly, ref, rotation, square;
-      square = Polyomino.square(size);
-      ref = _.zip(this.entries, [Piece.CCW_270, Piece.CCW_0, Piece.CCW_90, Piece.CCW_180]);
-      for (j = 0, len = ref.length; j < len; j++) {
-        [entry, rotation] = ref[j];
-        console.dir([entry, rotation]);
-        poly = entry.copy();
-        poly.rotate_around(rotation, size / 2, size / 2);
-        square.this_xor(poly);
+  Jigsaw = (function() {
+    class Jigsaw extends Block {
+      // Entries are polyominos XOR'd with a block
+      constructor(position, entries) {
+        super(position, entries);
       }
-      return square;
-    }
 
-  };
+      reduce_polyomino(size) {
+        var entry, j, len, poly, ref, rotation, square;
+        square = Polyomino.square(size);
+        ref = _.zip(this.entries, [Piece.CCW_270, Piece.CCW_0, Piece.CCW_90, Piece.CCW_180]);
+        for (j = 0, len = ref.length; j < len; j++) {
+          [entry, rotation] = ref[j];
+          poly = entry.copy();
+          poly.rotate_around(rotation, size / 2, size / 2);
+          square.this_xor(poly);
+        }
+        return square;
+      }
+
+      static tile_drag_end(e) {
+        this.x(this.piece.position[0] + 0.5);
+        this.y(this.piece.position[1] + 0.5);
+        if (this.should_rotate) {
+          //@inner.rotate Math.round (@inner.transform().rotation - 90) % 360, 0, 0
+          this.piece.rotate(Piece.CCW_90);
+          this.inner.remove();
+          return this.inner = this.jigsaw_tile(this.piece, this.puzzle.size);
+        }
+      }
+
+    };
+
+    
+    // SVG
+    Jigsaw.Tile = SVG.invent({
+      create: 'g',
+      inherit: SVG.G,
+      extend: {
+        constructor_: function(jigsaw, size) {
+          var poly;
+          poly = jigsaw.reduce_polyomino(size);
+          this.polyomino_tile(poly, 1 / 4).scale(1 / size, 0, 0).move(-0.5 * size, -0.5 * size);
+          return this;
+        }
+      },
+      construct: {
+        jigsaw_tile: function(jigsaw, size) {
+          return this.put(new Jigsaw.Tile).constructor_(jigsaw, size);
+        }
+      }
+    });
+
+    return Jigsaw;
+
+  }).call(this);
   Polyomino = (function() {
     class Polyomino extends Piece {
       // Stores entries as a list of offset positions
@@ -279,7 +315,8 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
       }
 
       copy(other) {
-        return new Polyomino(this.position.slice(0), new Set(this.entries));
+        var poly;
+        return poly = new Polyomino(this.position.slice(0), new Set(this.entries));
       }
 
       static square(size) {
@@ -339,7 +376,8 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
       rotate_around(amount, x, y) {
         this.shift_offset(-x, -y);
         this.rotate_offset(amount);
-        return this.shift_offset(x, y);
+        this.shift_offset(x, y);
+        return console.log('During', this.entries.toArray());
       }
 
       reoffset() {
@@ -371,6 +409,71 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
         return [this.entries.contains([point[0] + 1, point[1]]) ? [point[0] + 1, point[1]] : null, this.entries.contains([point[0], point[1] - 1]) ? [point[0], point[1] - 1] : null, this.entries.contains([point[0] - 1, point[1]]) ? [point[0] - 1, point[1]] : null, this.entries.contains([point[0], point[1] + 1]) ? [point[0], point[1] + 1] : null];
       }
 
+      boundary() { // returns the boundary as a list of loops, where each loop is a list of points
+        var curr, edge_graph, edge_points, loop_, loops, next;
+        edge_points = function(entry, side) {
+          switch (side) {
+            case Block.RIGHT:
+              return [[entry[0] + 1, entry[1] + 1], [entry[0] + 1, entry[1] + 0]];
+            case Block.TOP:
+              return [[entry[0] + 1, entry[1] + 0], [entry[0] + 0, entry[1] + 0]];
+            case Block.LEFT:
+              return [[entry[0] + 0, entry[1] + 0], [entry[0] + 0, entry[1] + 1]];
+            case Block.BOTTOM:
+              return [[entry[0] + 0, entry[1] + 1], [entry[0] + 1, entry[1] + 1]];
+          }
+        };
+        
+        // Edge graph
+        edge_graph = new Hash();
+        this.entries.forEach((entry) => {
+          var edge, i, j, len, nb, ref, results;
+          ref = this.neighbors(entry);
+          results = [];
+          for (i = j = 0, len = ref.length; j < len; i = ++j) {
+            nb = ref[i];
+            if (nb == null) {
+              edge = edge_points(entry, i);
+              
+              // Add the edge to the graph
+              if (!edge_graph.hasKey(edge[0])) {
+                edge_graph.put(edge[0], new Set());
+              }
+              if (!edge_graph.hasKey(edge[1])) {
+                edge_graph.put(edge[1], new Set());
+              }
+              edge_graph.get(edge[0]).add(edge[1]);
+              results.push(edge_graph.get(edge[1]).add(edge[0]));
+            } else {
+              results.push(void 0);
+            }
+          }
+          return results;
+        });
+        
+        // Traverse the edge graph for loops
+        loops = [];
+        while (!edge_graph.isEmpty()) {
+          curr = edge_graph.first().key; // use the Axiom of Choice to pick a vertex from this graph :)
+          loop_ = [curr];
+          while (edge_graph.hasKey(curr)) {
+            next = edge_graph.get(curr).first();
+            loop_.push(next);
+            edge_graph.get(curr).remove(next);
+            if (edge_graph.get(curr).isEmpty()) {
+              edge_graph.remove(curr);
+            }
+            edge_graph.get(next).remove(curr);
+            if (edge_graph.get(next).isEmpty()) {
+              edge_graph.remove(next);
+            }
+            curr = next;
+          }
+          loops.push(loop_);
+        }
+        return loops;
+      }
+
       reduce_unsigned(common, ustart) { // common: common number to use for edge, ustart: start of unique numbers
         var block_map;
         block_map = new Hash(_.flatten(this.entries.map(function(entry) {
@@ -390,7 +493,7 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
         }), true));
         this.entries.forEach((entry) => {
           var i, j, len, nb, ref, results;
-          ref = poly.neighbors(entry);
+          ref = this.neighbors(entry);
           results = [];
           for (i = j = 0, len = ref.length; j < len; i = ++j) {
             nb = ref[i];
@@ -408,9 +511,37 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
           }
           return results;
         });
-        return block_map.map(function(pair) {
-          return new UnsignedBlock(pair.key.slice(0), pair.value);
-        });
+        return [
+          block_map.map(function(pair) {
+            return new UnsignedBlock(pair.key.slice(0),
+          pair.value);
+          }),
+          ustart
+        ];
+      }
+
+      static tile_before_drag(e) {
+        return this.should_rotate = true;
+      }
+
+      static tile_drag_move(e) {
+        var x, y;
+        this.front();
+        [x, y] = [Math.floor(this.x() + 0.5), Math.floor(this.y() + 0.5)];
+        if (x !== this.piece.position[0] || y !== this.piece.position[1]) {
+          this.should_rotate = false;
+          return this.piece.position = [x, y];
+        }
+      }
+
+      static tile_drag_end(e) {
+        this.x(this.piece.position[0]);
+        this.y(this.piece.position[1]);
+        if (this.should_rotate) {
+          this.piece.rotate(Piece.CCW_90);
+          this.inner.remove();
+          return this.inner = this.polyomino_tile(this.piece);
+        }
       }
 
     };
@@ -421,17 +552,27 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
       create: 'g',
       inherit: SVG.G,
       extend: {
-        constructor_: function(poly) {
-          this.block_tile(entries);
-          poly.entries.forEach(function(entry) {
-            return this.rect(1, 1).fill('#0ff').move(entry[0] + 0.5, entry[1] + 0.5);
+        constructor_: function(poly, thickness) {
+          var bflat, boundary, j, len, loop_;
+          boundary = poly.boundary();
+          bflat = _.flatten(boundary, true);
+          this.polygon(bflat).fill({
+            color: '#00ffff80',
+            rule: 'evenodd'
           });
+          for (j = 0, len = boundary.length; j < len; j++) {
+            loop_ = boundary[j];
+            this.polyline(loop_).fill('none').stroke({
+              color: '#00f',
+              width: thickness != null ? thickness : 1 / 16
+            });
+          }
           return this;
         }
       },
       construct: {
-        polyomino_tile: function(entries) {
-          return this.put(new Polyomino.Tile).constructor_(poly);
+        polyomino_tile: function(poly, thickness) {
+          return this.put(new Polyomino.Tile).constructor_(poly, thickness);
         }
       }
     });
@@ -488,13 +629,13 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
 // note: 2 dots
       for (x = j = 0, ref = this.width; (0 <= ref ? j <= ref : j >= ref); x = 0 <= ref ? ++j : --j) {
         draw.line(x, 0, x, this.height).stroke({
-          color: '#000',
+          color: '#ddd',
           width: 1 / 16
         });
       }
       for (y = k = 0, ref1 = this.height; (0 <= ref1 ? k <= ref1 : k >= ref1); y = 0 <= ref1 ? ++k : --k) {
         draw.line(0, y, this.width, y).stroke({
-          color: '#000',
+          color: '#ddd',
           width: 1 / 16
         });
       }
@@ -792,12 +933,115 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
   }).call(this);
   JigsawPuzzle = (function() {
     class JigsawPuzzle extends EdgeMatch {
-      constructor(width, height, pieces) {
+      constructor(width, height, size1, pieces) {
+        var i;
+        if (!pieces) {
+          pieces = (function() {
+            var j, ref, results;
+            results = [];
+            for (i = j = 0, ref = width * height; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
+              results.push(new Jigsaw([modulo(i, width), Math.floor(i / width)], (function() {
+                var k, results1;
+                results1 = [];
+                for (i = k = 0; k < 4; i = ++k) {
+                  results1.push(void 0);
+                }
+                return results1;
+              })()));
+            }
+            return results;
+          })();
+        }
         super(width, height, pieces);
+        this.size = size1;
       }
 
       static reduce_to() {
         return PolyominoPack;
+      }
+
+      static from_3_partition(nums) {
+        var j, jp, k, l, m, piece, ref, ref1, ref2, ref3, sem, unique, x, y;
+        sem = SignedEdgeMatch.from_3_partition(nums);
+        unique = 1 + Math.max(...((function() {
+          var j, len, ref, results;
+          ref = sem.pieces;
+          results = [];
+          for (j = 0, len = ref.length; j < len; j++) {
+            piece = ref[j];
+            if (piece != null) {
+              results.push(Math.max(...piece.entries));
+            }
+          }
+          return results;
+        })()));
+
+// Fix frame inside
+        for (x = j = 0, ref = sem.width - 1; (0 <= ref ? j < ref : j > ref); x = 0 <= ref ? ++j : --j) {
+          sem.get_piece(x, 0).entries[Block.RIGHT] = unique;
+          sem.get_piece(x + 1, 0).entries[Block.LEFT] = -unique;
+          sem.get_piece(x, sem.height - 1).entries[Block.RIGHT] = -unique - 1;
+          sem.get_piece(x + 1, sem.height - 1).entries[Block.LEFT] = unique + 1;
+          unique += 2;
+        }
+        for (y = k = 0, ref1 = sem.height - 1; (0 <= ref1 ? k < ref1 : k > ref1); y = 0 <= ref1 ? ++k : --k) {
+          sem.get_piece(0, y).entries[Block.BOTTOM] = -unique;
+          sem.get_piece(0, y + 1).entries[Block.TOP] = unique;
+          sem.get_piece(sem.width - 1, y).entries[Block.BOTTOM] = unique + 1;
+          sem.get_piece(sem.width - 1, y + 1).entries[Block.TOP] = -unique - 1;
+        }
+        jp = new JigsawPuzzle(sem.width, sem.height, 5 + Math.floor(Math.log2(unique - 1)));
+        for (y = l = 0, ref2 = jp.height; (0 <= ref2 ? l < ref2 : l > ref2); y = 0 <= ref2 ? ++l : --l) {
+          for (x = m = 0, ref3 = jp.width; (0 <= ref3 ? m < ref3 : m > ref3); x = 0 <= ref3 ? ++m : --m) {
+            jp.get_piece(x, y).entries = sem.get_piece(x, y).reduce_jigsaw(jp.size).entries;
+          }
+        }
+        return jp;
+      }
+
+      init_render(draw) { // size used only for jigsaw
+        var j, k, l, piece, ref, ref1, ref2, results, tile, x, y;
+// note: 2 dots
+        for (x = j = 0, ref = this.width; (0 <= ref ? j <= ref : j >= ref); x = 0 <= ref ? ++j : --j) {
+          draw.line(x, 0, x, this.height).stroke({
+            color: '#ddd',
+            width: 1 / 16
+          });
+        }
+        for (y = k = 0, ref1 = this.height; (0 <= ref1 ? k <= ref1 : k >= ref1); y = 0 <= ref1 ? ++k : --k) {
+          draw.line(0, y, this.width, y).stroke({
+            color: '#ddd',
+            width: 1 / 16
+          });
+        }
+        results = [];
+        for (y = l = 0, ref2 = this.height; (0 <= ref2 ? l < ref2 : l > ref2); y = 0 <= ref2 ? ++l : --l) {
+          results.push((function() {
+            var m, ref3, results1;
+            results1 = [];
+            for (x = m = 0, ref3 = this.width; (0 <= ref3 ? m < ref3 : m > ref3); x = 0 <= ref3 ? ++m : --m) {
+              piece = this.get_piece(x, y);
+              if (piece != null) {
+                tile = draw.group(); // Make a group buffer because otherwise svg.draggable assumes that rotations need to be respected
+                tile.inner = tile.jigsaw_tile(this.get_piece(x, y), this.size);
+                tile.move(x + 0.5, y + 0.5);
+                tile.draggable({
+                  minX: 0.5,
+                  maxX: this.width + 0.5,
+                  minY: 0.5,
+                  maxY: this.height + 0.5
+                }).on('beforedrag', Block.tile_before_drag).on('dragmove', Block.tile_drag_move).on('dragend', Jigsaw.tile_drag_end);
+                tile.puzzle = this;
+                tile.piece = piece;
+                results1.push(piece.svg = tile);
+              } else {
+                results1.push(void 0);
+              }
+            }
+            return results1;
+          }).call(this));
+        }
+        return results;
       }
 
     };
@@ -809,13 +1053,163 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
   }).call(this);
   PolyominoPack = (function() {
     class PolyominoPack extends Puzzle {
-      constructor(width, height, pieces1) {
+      constructor(width, height, pieces1) { // Expects an array of pieces
         super(width, height);
         this.pieces = pieces1;
+        if (!this.pieces) {
+          this.pieces = [];
+        }
       }
 
       static reduce_to() {
         return UnsignedEdgeMatch;
+      }
+
+      reduce() {
+        var common, free_points, j, k, l, len, len1, m, n, o, p, piece, position, q, ref, ref1, ref2, ref3, ref4, ref5, ref6, ublock, ublocks, uem, unique, x, y;
+        uem = new UnsignedEdgeMatch(this.width + 2, this.height + 2);
+// Frame outside
+        for (x = j = 0, ref = uem.width; (0 <= ref ? j < ref : j > ref); x = 0 <= ref ? ++j : --j) {
+          uem.get_piece(x, 0).entries[Block.TOP] = 0;
+          uem.get_piece(x, uem.height - 1).entries[Block.BOTTOM] = 0;
+        }
+        for (y = k = 0, ref1 = uem.height; (0 <= ref1 ? k < ref1 : k > ref1); y = 0 <= ref1 ? ++k : --k) {
+          uem.get_piece(0, y).entries[Block.LEFT] = 0;
+          uem.get_piece(uem.width - 1, y).entries[Block.RIGHT] = 0;
+        }
+
+// Frame inside
+        for (x = l = 0, ref2 = uem.width - 1; (0 <= ref2 ? l < ref2 : l > ref2); x = 0 <= ref2 ? ++l : --l) {
+          uem.get_piece(x, 0).entries[Block.RIGHT] = 0;
+          uem.get_piece(x + 1, 0).entries[Block.LEFT] = 0;
+          uem.get_piece(x, uem.height - 1).entries[Block.RIGHT] = 0;
+          uem.get_piece(x + 1, uem.height - 1).entries[Block.LEFT] = 0;
+        }
+        for (y = m = 0, ref3 = uem.height - 1; (0 <= ref3 ? m < ref3 : m > ref3); y = 0 <= ref3 ? ++m : --m) {
+          uem.get_piece(0, y).entries[Block.BOTTOM] = 0;
+          uem.get_piece(0, y + 1).entries[Block.TOP] = 0;
+          uem.get_piece(uem.width - 1, y).entries[Block.BOTTOM] = 0;
+          uem.get_piece(uem.width - 1, y + 1).entries[Block.TOP] = 0;
+        }
+        common = 1;
+        unique = 2;
+// Give the inner frame the "glue" color
+        for (x = n = 1, ref4 = uem.width - 1; (1 <= ref4 ? n < ref4 : n > ref4); x = 1 <= ref4 ? ++n : --n) {
+          uem.get_piece(x, 0).entries[Block.BOTTOM] = common;
+          uem.get_piece(x, uem.height - 1).entries[Block.TOP] = common;
+        }
+        for (y = o = 1, ref5 = uem.height - 1; (1 <= ref5 ? o < ref5 : o > ref5); y = 1 <= ref5 ? ++o : --o) {
+          uem.get_piece(0, y).entries[Block.RIGHT] = common;
+          uem.get_piece(uem.width - 1, y).entries[Block.LEFT] = common;
+        }
+        free_points = new Set(_.flatten((function() {
+          var p, ref6, results;
+          results = [];
+          for (y = p = 1, ref6 = uem.height - 1; (1 <= ref6 ? p < ref6 : p > ref6); y = 1 <= ref6 ? ++p : --p) {
+            results.push((function() {
+              var q, ref7, results1;
+              results1 = [];
+              for (x = q = 1, ref7 = uem.width - 1; (1 <= ref7 ? q < ref7 : q > ref7); x = 1 <= ref7 ? ++q : --q) {
+                results1.push([x, y]);
+              }
+              return results1;
+            })());
+          }
+          return results;
+        })(), true));
+        ref6 = this.pieces;
+        
+        //debug
+        //for y in [1...uem.height - 1]
+        //	for x in [1...uem.width - 1]
+        //		uem.get_piece(x, y).entries = [0,0,0,0]
+        for (p = 0, len = ref6.length; p < len; p++) {
+          piece = ref6[p];
+          [ublocks, unique] = piece.reduce_unsigned(common, unique);
+          for (q = 0, len1 = ublocks.length; q < len1; q++) {
+            ublock = ublocks[q];
+            position = [piece.position[0] + ublock.position[0] + 1, piece.position[1] + ublock.position[1] + 1];
+            if (!free_points.contains(position)) {
+              position = free_points.first();
+            }
+            uem.get_piece(position[0], position[1]).entries = ublock.entries;
+            free_points.remove(position);
+          }
+        }
+        return [uem, 1];
+      }
+
+      static from_3_partition(nums) {
+        var frame, height, i, j, k, l, len, num, num_sum, pp, ref, ref1, target_sum, width, x, y;
+        target_sum = target_sum_3_partition(nums);
+        width = target_sum + 2;
+        height = nums.length / 3 * 2 - 1;
+        pp = new PolyominoPack(width, height);
+        frame = new Polyomino([0, 0], []);
+        for (y = j = 0, ref = height; (0 <= ref ? j < ref : j > ref); y = 0 <= ref ? ++j : --j) {
+          frame.entries.add([0, y]);
+          if (y % 2 !== 0) {
+            for (x = k = 1, ref1 = width - 1; (1 <= ref1 ? k < ref1 : k > ref1); x = 1 <= ref1 ? ++k : --k) {
+              frame.entries.add([x, y]);
+            }
+          }
+          frame.entries.add([width - 1, y]);
+        }
+        pp.pieces.push(frame);
+        num_sum = 0;
+        y = 0;
+        for (l = 0, len = nums.length; l < len; l++) {
+          num = nums[l];
+          pp.pieces.push(new Polyomino([num_sum + 1, y], (function() {
+            var m, ref2, results;
+            results = [];
+            for (i = m = 0, ref2 = num; (0 <= ref2 ? m < ref2 : m > ref2); i = 0 <= ref2 ? ++m : --m) {
+              results.push([i, 0]);
+            }
+            return results;
+          })()));
+          num_sum += num;
+          if (num_sum >= target_sum) {
+            num_sum = 0;
+            y += 2;
+          }
+        }
+        return pp;
+      }
+
+      init_render(draw) {
+        var j, k, l, len, piece, ref, ref1, ref2, results, tile, x, y;
+// note: 2 dots
+        for (x = j = 0, ref = this.width; (0 <= ref ? j <= ref : j >= ref); x = 0 <= ref ? ++j : --j) {
+          draw.line(x, 0, x, this.height).stroke({
+            color: '#ddd',
+            width: 1 / 16
+          });
+        }
+        for (y = k = 0, ref1 = this.height; (0 <= ref1 ? k <= ref1 : k >= ref1); y = 0 <= ref1 ? ++k : --k) {
+          draw.line(0, y, this.width, y).stroke({
+            color: '#ddd',
+            width: 1 / 16
+          });
+        }
+        ref2 = this.pieces;
+        results = [];
+        for (l = 0, len = ref2.length; l < len; l++) {
+          piece = ref2[l];
+          tile = draw.group(); // Make a group buffer because otherwise svg.draggable assumes that rotations need to be respected
+          tile.inner = tile.polyomino_tile(piece);
+          tile.move(piece.position[0], piece.position[1]);
+          //minX: 0
+          //maxX: @width
+          //minY: 0
+          //maxY: @height
+          //)
+          tile.draggable().on('beforedrag', Polyomino.tile_before_drag).on('dragmove', Polyomino.tile_drag_move).on('dragend', Polyomino.tile_drag_end);
+          tile.puzzle = this;
+          tile.piece = piece;
+          results.push(piece.svg = tile);
+        }
+        return results;
       }
 
     };
@@ -826,7 +1220,7 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
 
   }).call(this);
   draw = SVG(drawing);
-  puzzle_type = UnsignedEdgeMatch;
+  puzzle_type = JigsawPuzzle;
   size = 64;
   width = 0;
   height = 0;
@@ -910,6 +1304,9 @@ JS.require('JS.Set', 'JS.Hash', function(Set, Hash) {
 //sb = new SignedBlock [0, 0], [1, 3, -6, -7]
 //jig = sb.reduce_jigsaw 7
 //poly = jig.reduce_polyomino 7
+
+//polyo = new Polyomino [0, 0], [[0, 0], [1, 0], [2, 0], [0, 1], [2, 1], [0, 2], [1, 2]]
+//console.log polyo.boundary()
 
 //str_ = ''
 //for num in block.entries

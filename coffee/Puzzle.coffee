@@ -52,7 +52,7 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 			
 		@tile_drag_move = (e) ->
 			@front()
-			[x, y] = [Math.floor(@cx()), Math.floor(@cy())]
+			[x, y] = [Math.floor(@x()), Math.floor(@y())]
 			if x != @piece.position[0] or y != @piece.position[1]
 				@should_rotate = false
 				@puzzle.swap_pieces @piece.position[0], @piece.position[1], x, y
@@ -61,8 +61,8 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 			@x @piece.position[0] + 0.5
 			@y @piece.position[1] + 0.5
 			if @should_rotate
-				@inner.rotate Math.round (@inner.transform().rotation - 90) % 360
-				@piece.rotate()
+				@inner.rotate Math.round (@inner.transform().rotation - 90) % 360, 0, 0
+				@piece.rotate Piece.CCW_90
 		
 		#@STRIP_COLORS = ['#f00', '#f80', '#840', '#fc0', '#ff0', '#8f0', '#0f0', '#0f8', '#0ff', '#088', '#08f', '#00f', '#80f', '#808', '#f0f', '#f08']
 		@STRIP_COLORS = ['#f00', '#ff0', '#0f0', '#0ff', '#00f', '#f0f', '#f88', '#880', '#080', '#088', '#88f', '#808', '#000', '#555', '#aaa', '#fff']
@@ -119,6 +119,7 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 				poly = new Polyomino [0, 0], entries
 				if num > 0
 					poly.rotate_around Piece.CCW_180, size / 2, 0
+				console.log 'After', poly.entries.toArray()
 				return poly
 				
 			return new Jigsaw [0, 0], (edge_to_polyomino(num) for num in @entries)
@@ -160,11 +161,33 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 		reduce_polyomino: (size) ->
 			square = Polyomino.square size
 			for [entry, rotation] in _.zip @entries, [Piece.CCW_270, Piece.CCW_0, Piece.CCW_90, Piece.CCW_180]
-				console.dir [entry, rotation]
 				poly = entry.copy()
 				poly.rotate_around rotation, size / 2, size / 2
 				square.this_xor poly
 			return square
+			
+		# SVG
+		@Tile = SVG.invent(
+			create: 'g'
+			inherit: SVG.G
+			extend:
+				constructor_: (jigsaw, size) ->
+					poly = jigsaw.reduce_polyomino size
+					@polyomino_tile(poly, 1/4).scale(1/size, 0, 0).move(-0.5 * size, -0.5 * size)
+					return this
+					
+			construct:
+				jigsaw_tile: (jigsaw, size) -> @put(new Jigsaw.Tile).constructor_ jigsaw, size
+		)
+		
+		@tile_drag_end = (e) ->
+			@x @piece.position[0] + 0.5
+			@y @piece.position[1] + 0.5
+			if @should_rotate
+				#@inner.rotate Math.round (@inner.transform().rotation - 90) % 360, 0, 0
+				@piece.rotate Piece.CCW_90
+				@inner.remove()
+				@inner = @jigsaw_tile @piece, @puzzle.size
 		
 		
 	class Polyomino extends Piece
@@ -176,7 +199,7 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 				@entries = new Set @entries
 				
 		copy: (other) ->
-			return new Polyomino @position[..], new Set @entries
+			poly = new Polyomino @position[..], new Set @entries
 		
 		@square: (size) ->
 			entries = _.flatten (([x, y] for x in [0...size]) for y in [0...size]), true
@@ -203,6 +226,7 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 			@shift_offset -x, -y
 			@rotate_offset amount
 			@shift_offset x, y
+			console.log 'During', x, y, @entries.toArray()
 		
 		reoffset: ->
 			# Re-offset to origin
@@ -241,14 +265,36 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 						edge = edge_points entry, i
 						
 						# Add the edge to the graph
-						unless edge_graph.has_key edge[0]
-							edge_graph.put edge[0], []
-						unless edge_graph.has_key edge[1]
-							edge_graph.put edge[1], []
-						edge_graph.get(edge[0]).push edge[1]
-						edge_graph.get(edge[1]).push edge[0]
+						unless edge_graph.hasKey edge[0]
+							edge_graph.put edge[0], new Set()
+						unless edge_graph.hasKey edge[1]
+							edge_graph.put edge[1], new Set()
+						edge_graph.get(edge[0]).add edge[1]
+						edge_graph.get(edge[1]).add edge[0]
 						
-			return edge_graph
+			# Traverse the edge graph for loops
+			loops = []
+			until edge_graph.isEmpty()
+				curr = edge_graph.first().key # use the Axiom of Choice to pick a vertex from this graph :)
+				loop_ = [curr]
+				
+				while edge_graph.hasKey curr
+					next = edge_graph.get(curr).first()
+					loop_.push next
+					
+					edge_graph.get(curr).remove next
+					if edge_graph.get(curr).isEmpty()
+						edge_graph.remove curr
+						
+					edge_graph.get(next).remove curr
+					if edge_graph.get(next).isEmpty()
+						edge_graph.remove next
+						
+					curr = next
+					
+				loops.push loop_
+						
+			return loops
 			
 		
 		reduce_unsigned: (common, ustart) -> # common: common number to use for edge, ustart: start of unique numbers
@@ -263,22 +309,42 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 					else
 						block_map.get(entry)[i] = common # edges of jigsaw get color common to all edges
 			
-			return block_map.map (pair) -> new UnsignedBlock pair.key[..], pair.value
+			return [(block_map.map (pair) -> new UnsignedBlock pair.key[..], pair.value), ustart]
 			
 		# SVG
 		@Tile = SVG.invent(
 			create: 'g'
 			inherit: SVG.G
 			extend:
-				constructor_: (poly) ->
-					@block_tile(entries)
-					poly.entries.forEach (entry) ->
-						@rect(1, 1).fill('#0ff').move entry[0] + 0.5, entry[1] + 0.5
+				constructor_: (poly, thickness) ->
+					boundary = poly.boundary()
+					bflat = _.flatten boundary, true
+					@polygon(bflat).fill({color: '#00ffff80', rule: 'evenodd'})
+					for loop_ in boundary
+						@polyline(loop_).fill('none').stroke({color: '#00f', width: thickness ? 1/16})
 					return this
 					
 			construct:
-				polyomino_tile: (entries) -> @put(new Polyomino.Tile).constructor_ poly
+				polyomino_tile: (poly, thickness) -> @put(new Polyomino.Tile).constructor_ poly, thickness
 		)
+		
+		@tile_before_drag = (e) ->
+			@should_rotate = true
+			
+		@tile_drag_move = (e) ->
+			@front()
+			[x, y] = [Math.floor(@x() + 0.5), Math.floor(@y() + 0.5)]
+			if x != @piece.position[0] or y != @piece.position[1]
+				@should_rotate = false
+				@piece.position = [x, y]
+				
+		@tile_drag_end = (e) ->
+			@x @piece.position[0]
+			@y @piece.position[1]
+			if @should_rotate
+				@piece.rotate Piece.CCW_90
+				@inner.remove()
+				@inner = @polyomino_tile @piece
 		
 	
 	class Puzzle
@@ -307,9 +373,9 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 			
 		init_render: (draw, element_func) ->
 			for x in [0..@width] # note: 2 dots
-				draw.line(x, 0, x, @height).stroke({color: '#000', width: 1/16})
+				draw.line(x, 0, x, @height).stroke({color: '#ddd', width: 1/16})
 			for y in [0..@height]
-				draw.line(0, y, @width, y).stroke({color: '#000', width: 1/16})
+				draw.line(0, y, @width, y).stroke({color: '#ddd', width: 1/16})
 				
 			for y in [0...@height]
 				for x in [0...@width]
@@ -504,19 +570,178 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 		
 		
 	class JigsawPuzzle extends EdgeMatch
-		constructor: (width, height, pieces) -> super width, height, pieces
+		constructor: (width, height, @size, pieces) ->
+			unless pieces
+				pieces = ((new Jigsaw [i %% width, i // width], (undefined for i in [0...4])) for i in [0...width * height])
+			super width, height, pieces
+			
 		@puzzle_name = 'Jigsaw Puzzle'
 		@reduce_to = -> PolyominoPack
 		
+		@from_3_partition: (nums) -> 
+			sem = SignedEdgeMatch.from_3_partition nums
+			unique = 1 + Math.max ...(Math.max(...piece.entries) for piece in sem.pieces when piece?)
+			
+			# Fix frame inside
+			for x in [0...sem.width - 1]
+				sem.get_piece(x, 0).entries[Block.RIGHT] = unique
+				sem.get_piece(x + 1, 0).entries[Block.LEFT] = -unique
+				sem.get_piece(x, sem.height - 1).entries[Block.RIGHT] = -unique - 1
+				sem.get_piece(x + 1, sem.height - 1).entries[Block.LEFT] = unique + 1
+				unique += 2
+			for y in [0...sem.height - 1]
+				sem.get_piece(0, y).entries[Block.BOTTOM] = -unique
+				sem.get_piece(0, y + 1).entries[Block.TOP] = unique
+				sem.get_piece(sem.width - 1, y).entries[Block.BOTTOM] = unique + 1
+				sem.get_piece(sem.width - 1, y + 1).entries[Block.TOP] = -unique - 1
+				
+			jp = new JigsawPuzzle sem.width, sem.height, 5 + Math.floor Math.log2(unique - 1)
+			for y in [0...jp.height]
+				for x in [0...jp.width]
+					jp.get_piece(x, y).entries = sem.get_piece(x, y).reduce_jigsaw(jp.size).entries
+				
+			return jp
+			
+		init_render: (draw) -> # size used only for jigsaw
+			for x in [0..@width] # note: 2 dots
+				draw.line(x, 0, x, @height).stroke({color: '#ddd', width: 1/16})
+			for y in [0..@height]
+				draw.line(0, y, @width, y).stroke({color: '#ddd', width: 1/16})
+				
+			for y in [0...@height]
+				for x in [0...@width]
+					piece = @get_piece(x, y)
+					if piece?
+						tile = draw.group() # Make a group buffer because otherwise svg.draggable assumes that rotations need to be respected
+						tile.inner = tile.jigsaw_tile @get_piece(x, y), @size
+						tile.move x + 0.5, y + 0.5
+						tile.draggable(
+							minX: 0.5
+							maxX: @width + 0.5
+							minY: 0.5
+							maxY: @height + 0.5
+						)
+						.on('beforedrag', Block.tile_before_drag)
+						.on('dragmove', Block.tile_drag_move)
+						.on('dragend', Jigsaw.tile_drag_end)
+						
+						tile.puzzle = this
+						tile.piece = piece
+						piece.svg = tile
+		
 		
 	class PolyominoPack extends Puzzle
-		constructor: (width, height, @pieces) -> super width, height # Expects an array of pieces
+		constructor: (width, height, @pieces) -> # Expects an array of pieces
+			super width, height
+			unless @pieces
+				@pieces = []
 		@puzzle_name = 'Polyomino Packing'
 		@reduce_to = -> UnsignedEdgeMatch
 		
+		reduce: ->
+			uem = new UnsignedEdgeMatch @width + 2, @height + 2
+			# Frame outside
+			for x in [0...uem.width]
+				uem.get_piece(x, 0).entries[Block.TOP] = 0
+				uem.get_piece(x, uem.height - 1).entries[Block.BOTTOM] = 0
+			for y in [0...uem.height]
+				uem.get_piece(0, y).entries[Block.LEFT] = 0
+				uem.get_piece(uem.width - 1, y).entries[Block.RIGHT] = 0
+				
+			# Frame inside
+			for x in [0...uem.width - 1]
+				uem.get_piece(x, 0).entries[Block.RIGHT] = 0
+				uem.get_piece(x + 1, 0).entries[Block.LEFT] = 0
+				uem.get_piece(x, uem.height - 1).entries[Block.RIGHT] = 0
+				uem.get_piece(x + 1, uem.height - 1).entries[Block.LEFT] = 0
+			for y in [0...uem.height - 1]
+				uem.get_piece(0, y).entries[Block.BOTTOM] = 0
+				uem.get_piece(0, y + 1).entries[Block.TOP] = 0
+				uem.get_piece(uem.width - 1, y).entries[Block.BOTTOM] = 0
+				uem.get_piece(uem.width - 1, y + 1).entries[Block.TOP] = 0
+				
+			common = 1
+			unique = 2
+			# Give the inner frame the "glue" color
+			for x in [1...uem.width - 1]
+				uem.get_piece(x, 0).entries[Block.BOTTOM] = common
+				uem.get_piece(x, uem.height - 1).entries[Block.TOP] = common
+			for y in [1...uem.height - 1]
+				uem.get_piece(0, y).entries[Block.RIGHT] = common
+				uem.get_piece(uem.width - 1, y).entries[Block.LEFT] = common
+				
+				
+			free_points = new Set _.flatten (([x, y] for x in [1...uem.width - 1]) for y in [1...uem.height - 1]), true
+			
+			#debug
+			#for y in [1...uem.height - 1]
+			#	for x in [1...uem.width - 1]
+			#		uem.get_piece(x, y).entries = [0,0,0,0]
+			
+			for piece in @pieces
+				[ublocks, unique] = piece.reduce_unsigned common, unique
+				for ublock in ublocks
+					position = [piece.position[0] + ublock.position[0] + 1, piece.position[1] + ublock.position[1] + 1]
+					unless free_points.contains position
+						position = free_points.first()
+					uem.get_piece(position[0], position[1]).entries = ublock.entries
+					free_points.remove position					
+				
+			return [uem, 1]
+		
+		@from_3_partition: (nums) -> 
+			target_sum = target_sum_3_partition nums
+			width = target_sum + 2
+			height = nums.length / 3 * 2 - 1
+			pp = new PolyominoPack width, height
+			
+			frame = new Polyomino [0, 0], []
+			for y in [0...height]
+				frame.entries.add [0, y]
+				if y % 2 != 0
+					for x in [1...width - 1]
+						frame.entries.add [x, y]
+				frame.entries.add [width - 1, y]
+			pp.pieces.push frame
+			
+			num_sum = 0
+			y = 0
+			for num in nums
+				pp.pieces.push new Polyomino [num_sum + 1, y], ([i, 0] for i in [0...num])
+				num_sum += num
+				if num_sum >= target_sum
+					num_sum = 0
+					y += 2
+					
+			return pp
+		
+		init_render: (draw) ->
+			for x in [0..@width] # note: 2 dots
+				draw.line(x, 0, x, @height).stroke({color: '#ddd', width: 1/16})
+			for y in [0..@height]
+				draw.line(0, y, @width, y).stroke({color: '#ddd', width: 1/16})
+				
+			for piece in @pieces
+				tile = draw.group() # Make a group buffer because otherwise svg.draggable assumes that rotations need to be respected
+				tile.inner = tile.polyomino_tile piece
+				tile.move piece.position[0], piece.position[1]
+				tile.draggable()
+					#minX: 0
+					#maxX: @width
+					#minY: 0
+					#maxY: @height
+				#)
+				.on('beforedrag', Polyomino.tile_before_drag)
+				.on('dragmove', Polyomino.tile_drag_move)
+				.on('dragend', Polyomino.tile_drag_end)
+				
+				tile.puzzle = this
+				tile.piece = piece
+				piece.svg = tile
+		
 	
 	draw = SVG drawing
-	puzzle_type = UnsignedEdgeMatch
+	puzzle_type = JigsawPuzzle
 	size = 64
 	width = 0
 	height = 0
@@ -596,8 +821,8 @@ JS.require 'JS.Set', 'JS.Hash', (Set, Hash) ->
 	#jig = sb.reduce_jigsaw 7
 	#poly = jig.reduce_polyomino 7
 	
-	polyo = new Polyomino [0, 0], [[0, 0], [1, 0], [2, 0], [2, 1]]
-	console.log polyo.boundary()
+	#polyo = new Polyomino [0, 0], [[0, 0], [1, 0], [2, 0], [0, 1], [2, 1], [0, 2], [1, 2]]
+	#console.log polyo.boundary()
 	
 	#str_ = ''
 	#for num in block.entries
